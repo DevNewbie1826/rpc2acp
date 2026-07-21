@@ -1,0 +1,62 @@
+{
+  "name": "rpc2acp",
+  "version": "0.1.0",
+  "description": "ACP adapter for pi coding agent (fork of pi-acp with multi-session support)",
+  "license": "MIT",
+  "author": "Sergii Kozak <svkozak@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DevNewbie1826/rpc2acp.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/DevNewbie1826/rpc2acp/issues"
+  },
+  "homepage": "https://github.com/DevNewbie1826/rpc2acp#readme",
+  "keywords": [
+    "acp",
+    "agent-client-protocol",
+    "pi-coding-agent",
+    "adapter"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "rpc2acp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "format": "prettier . --write",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "smoke": "node scripts/smoke-acp.mjs",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run test && npm run build"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.26.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.17.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.8.3",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.18.0"
+  }
+}
