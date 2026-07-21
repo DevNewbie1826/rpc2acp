@@ -41,7 +41,34 @@ export function getAuthMethods(opts?: { supportsTerminalAuthMeta?: boolean }): A
   return [method as AuthMethod]
 }
 
+/**
+ * Extract variant-related CLI args from process.argv.
+ * These must be forwarded to terminal-auth child processes so the child
+ * resolves the same agent variant as the parent.
+ */
+function variantCliArgs(): string[] {
+  const flags = ['variant', 'agent-command', 'agent-config-dir', 'agent-npm-package']
+  const out: string[] = []
+  for (let i = 0; i < process.argv.length; i++) {
+    const arg = process.argv[i]
+    for (const f of flags) {
+      if (arg === `--${f}` && i + 1 < process.argv.length) {
+        const v = process.argv[i + 1]
+        if (v && !v.startsWith('--')) {
+          out.push(arg, v)
+          i++ // skip the value
+        }
+      } else if (arg.startsWith(`--${f}=`)) {
+        out.push(arg)
+      }
+    }
+  }
+  return out
+}
+
 function terminalAuthLaunchSpec(): { command: string; args: string[] } {
+  const variantArgs = variantCliArgs()
+
   // If we were launched as `node /path/to/dist/index.js`, reuse that.
   // This is the most reliable in local dev and custom Zed configurations.
   const argv0 = process.argv[0] || 'node'
@@ -50,10 +77,10 @@ function terminalAuthLaunchSpec(): { command: string; args: string[] } {
     const isNode = argv0.includes('node')
     const isJs = argv1.endsWith('.js')
     if (isNode && isJs) {
-      return { command: argv0, args: [argv1, '--terminal-login'] }
+      return { command: argv0, args: [argv1, ...variantArgs, '--terminal-login'] }
     }
   }
 
-  // Fallback: assume `pi-acp` is on PATH.
-  return { command: 'pi-acp', args: ['--terminal-login'] }
+  // Fallback: assume `rpc2acp` is on PATH.
+  return { command: 'rpc2acp', args: [...variantArgs, '--terminal-login'] }
 }

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, execSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import * as readline from 'node:readline'
 import { getPiCommand, shouldUseShellForPiCommand } from './command.js'
 
@@ -135,7 +135,11 @@ export class PiRpcProcess {
     // Keep extensions + prompt templates enabled because ACP users may rely on them
     // (e.g. MCP extensions, prompt templates for workflows).
     const args = ['--mode', 'rpc', '--no-themes']
-    if (params.sessionPath) args.push('--session', params.sessionPath)
+    if (params.sessionPath) {
+      // Quote the path so cmd.exe doesn't split it on spaces.
+      const useShell = shouldUseShellForPiCommand(cmd)
+      args.push('--session', useShell ? `"${params.sessionPath}"` : params.sessionPath)
+    }
 
     const child = spawn(cmd, args, {
       cwd: params.cwd,
@@ -214,6 +218,19 @@ export class PiRpcProcess {
 
   dispose(signal: NodeJS.Signals | number = 'SIGTERM'): void {
     if (this.child.killed) return
+
+    // On Windows with shell:true, child is the cmd.exe wrapper PID.
+    // child.kill() terminates only the shell; the actual pi Node process survives.
+    // Use taskkill /T to terminate the entire process tree.
+    if (process.platform === 'win32' && shouldUseShellForPiCommand(getPiCommand())) {
+      try {
+        execSync(`taskkill /PID ${this.child.pid} /T /F`, { stdio: 'ignore' })
+        return
+      } catch {
+        // Fall through to normal kill if taskkill fails.
+      }
+    }
+
     try {
       this.child.kill(signal as any)
     } catch {
