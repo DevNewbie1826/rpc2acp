@@ -43,23 +43,55 @@ function envOrUndefined(key: string): string | undefined {
 }
 
 /**
+ * Parse a CLI flag value: --flag value or --flag=value.
+ * Returns undefined if the flag is not present.
+ */
+function cliFlag(name: string): string | undefined {
+  const prefix = `--${name}=`
+  for (let i = 0; i < process.argv.length; i++) {
+    const arg = process.argv[i]
+    if (arg === `--${name}` && i + 1 < process.argv.length) {
+      const v = process.argv[i + 1]
+      if (v && !v.startsWith('--')) return v
+    }
+    if (arg.startsWith(prefix)) return arg.slice(prefix.length)
+  }
+  return undefined
+}
+
+function cliFlagOrUndefined(name: string): string | undefined {
+  const v = cliFlag(name)
+  return v && v.trim() ? v.trim() : undefined
+}
+
+/**
  * Resolve the active agent variant.
  *
  * Priority (highest wins):
- * 1. Individual env overrides: PI_ACP_AGENT_COMMAND, PI_ACP_AGENT_CONFIG_DIR, PI_ACP_AGENT_NPM_PACKAGE
- * 2. Preset from PI_ACP_VARIANT (pi|omp|senpi)
- * 3. Legacy: PI_ACP_PI_COMMAND (command only)
- * 4. Default: pi
+ * 1. CLI args: --variant, --agent-command, --agent-config-dir, --agent-npm-package
+ * 2. Individual env overrides: PI_ACP_AGENT_COMMAND, PI_ACP_AGENT_CONFIG_DIR, PI_ACP_AGENT_NPM_PACKAGE
+ * 3. Preset from PI_ACP_VARIANT (pi|omp|senpi)
+ * 4. Legacy: PI_ACP_PI_COMMAND (command only)
+ * 5. Default: pi
  */
 export function resolveVariant(): AgentVariant {
-  const presetName = envOrUndefined('PI_ACP_VARIANT')?.toLowerCase() ?? 'pi'
+  const presetName = cliFlagOrUndefined('variant')?.toLowerCase()
+    ?? envOrUndefined('PI_ACP_VARIANT')?.toLowerCase()
+    ?? 'pi'
   const preset = PRESETS[presetName] ?? PRESETS.pi
 
   return {
     name: preset.name,
-    configDir: envOrUndefined('PI_ACP_AGENT_CONFIG_DIR') ?? preset.configDir,
-    command: envOrUndefined('PI_ACP_AGENT_COMMAND') ?? envOrUndefined('PI_ACP_PI_COMMAND') ?? preset.command,
-    npmPackage: envOrUndefined('PI_ACP_AGENT_NPM_PACKAGE') ?? preset.npmPackage
+    configDir: cliFlagOrUndefined('agent-config-dir')
+      ?? envOrUndefined('PI_ACP_AGENT_CONFIG_DIR')
+      ?? preset.configDir,
+    command: cliFlagOrUndefined('agent-command')
+      ?? envOrUndefined('PI_ACP_AGENT_COMMAND')
+      ?? envOrUndefined('PI_ACP_PI_COMMAND')
+      ?? preset.command,
+    npmPackage: cliFlagOrUndefined('agent-npm-package')
+      ?? envOrUndefined('PI_ACP_AGENT_NPM_PACKAGE')
+      ?? preset.npmPackage
   }
 }
 

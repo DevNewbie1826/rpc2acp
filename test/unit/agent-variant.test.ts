@@ -123,3 +123,55 @@ test('path helpers: global paths use agentDir', () => {
   assert.equal(getUserPromptsDir(pi), join(agentDir, 'prompts'))
   assert.equal(getGlobalSettingsPath(pi), join(agentDir, 'settings.json'))
 })
+
+test('resolveVariant: CLI --variant selects preset', () => {
+  const prevArgv = process.argv
+  try {
+    process.argv = ['node', 'rpc2acp', '--variant', 'omp']
+    const v = resolveVariant()
+    assert.equal(v.name, 'omp')
+    assert.equal(v.command, 'omp')
+    assert.equal(v.configDir, '.omp')
+  } finally {
+    process.argv = prevArgv
+  }
+})
+
+test('resolveVariant: CLI --variant=senpi (equals form)', () => {
+  const prevArgv = process.argv
+  try {
+    process.argv = ['node', 'rpc2acp', '--variant=senpi']
+    const v = resolveVariant()
+    assert.equal(v.name, 'senpi')
+    assert.equal(v.command, 'senpi')
+  } finally {
+    process.argv = prevArgv
+  }
+})
+
+test('resolveVariant: CLI --agent-command overrides preset', () => {
+  const prevArgv = process.argv
+  try {
+    process.argv = ['node', 'rpc2acp', '--variant', 'pi', '--agent-command', 'my-custom-pi']
+    const v = resolveVariant()
+    assert.equal(v.command, 'my-custom-pi')
+    assert.equal(v.configDir, '.pi') // stays at preset
+  } finally {
+    process.argv = prevArgv
+  }
+})
+
+test('resolveVariant: CLI beats env var', () => {
+  const prevArgv = process.argv
+  const prevEnv = process.env.PI_ACP_VARIANT
+  try {
+    process.env.PI_ACP_VARIANT = 'senpi'
+    process.argv = ['node', 'rpc2acp', '--variant', 'omp']
+    const v = resolveVariant()
+    assert.equal(v.name, 'omp') // CLI wins over env
+  } finally {
+    process.argv = prevArgv
+    if (prevEnv === undefined) delete process.env.PI_ACP_VARIANT
+    else process.env.PI_ACP_VARIANT = prevEnv
+  }
+})
