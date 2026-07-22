@@ -224,6 +224,7 @@ export class SessionManager {
   close(sessionId: string): void {
     const s = this.sessions.get(sessionId)
     if (!s) return
+    s.disposed = true
     try {
       s.proc.dispose?.()
     } catch {
@@ -318,6 +319,9 @@ export class PiAcpSession {
   private readonly conn: AgentSideConnection
   private readonly fileCommands: FileSlashCommand[]
 
+  /** Set when the session is closed via session/close or loadSession. Prevents stale exit callbacks. */
+  disposed = false
+
   // Used to map abort semantics to ACP stopReason.
   // Applies to the currently running turn.
   private cancelRequested = false
@@ -366,13 +370,16 @@ export class PiAcpSession {
 
     // Settle any live turn when the subprocess exits unexpectedly.
     this.proc.onExit(() => {
+      if (this.disposed) return
       void (async () => {
         // Finalize any active tool calls so the client doesn't see them stuck.
         for (const [toolCallId] of this.currentToolCalls) {
+          const isBash = this.bashToolCallIds.has(toolCallId)
           this.emit({
             sessionUpdate: 'tool_call_update',
             toolCallId,
-            status: 'failed'
+            status: 'failed',
+            ...(isBash ? { _meta: bashTerminalExitMeta(toolCallId, 1) } : {})
           })
         }
         // Ensure all failure notifications are delivered before resolving.
