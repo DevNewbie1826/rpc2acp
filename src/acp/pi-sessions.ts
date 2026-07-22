@@ -7,7 +7,9 @@ const variant = resolveVariant()
 
 function expandTilde(p: string): string {
   if (p === '~') return homedir()
-  if (p.startsWith('~/') || p.startsWith('~\\')) return join(homedir(), p.slice(2))
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2))
+  // Backslash tilde is only a home shortcut on Windows.
+  if (process.platform === 'win32' && p.startsWith('~\\')) return join(homedir(), p.slice(2))
   return p
 }
 
@@ -49,9 +51,8 @@ export function getPiSessionsDir(): string {
   const envDir = process.env[envKey]
   if (envDir && envDir.trim()) {
     const expanded = expandTilde(envDir.trim())
-    // Relative paths resolve against the agent dir (matches Pi's own semantics),
-    // not the adapter process's CWD.
-    return isAbsolute(expanded) ? expanded : resolve(getPiAgentDir(), expanded)
+    // Pi resolves relative session dirs against the spawned process's CWD.
+    return isAbsolute(expanded) ? expanded : resolve(expanded)
   }
 
   const agentDir = getPiAgentDir()

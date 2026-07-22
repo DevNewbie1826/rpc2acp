@@ -367,6 +367,16 @@ export class PiAcpSession {
     // Settle any live turn when the subprocess exits unexpectedly.
     this.proc.onExit(() => {
       void this.flushEmits().finally(() => {
+        // Finalize any active tool calls so the client doesn't see them stuck.
+        for (const [toolCallId] of this.currentToolCalls) {
+          this.emit({
+            sessionUpdate: 'tool_call_update',
+            toolCallId,
+            status: 'failed'
+          })
+        }
+        this.clearStaleToolState()
+
         if (this.pendingTurn) {
           this.pendingTurn.resolve('error')
           this.pendingTurn = null
