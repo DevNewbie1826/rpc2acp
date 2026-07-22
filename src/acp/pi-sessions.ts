@@ -156,12 +156,14 @@ function pickTitleFromTail(tail: string): { name: string | null; found: boolean 
 function scanSessionInfoNameFromFile(path: string): string | null {
   // Fallback when the session_info entry is older than our tail window.
   // Scan the whole file line-by-line and remember the last session_info.name.
+  // An empty name in the latest session_info is an explicit clear.
   const fd = openSync(path, 'r')
   try {
     const buf = Buffer.alloc(256 * 1024)
     let leftover = ''
     let offset = 0
     let lastName: string | null = null
+    let lastWasClear = false
 
     while (true) {
       const n = readSync(fd, buf, 0, buf.length, offset)
@@ -177,8 +179,10 @@ function scanSessionInfoNameFromFile(path: string): string | null {
         if (!line) continue
         try {
           const obj = JSON.parse(line) as any
-          if (obj?.type === 'session_info' && typeof obj?.name === 'string' && obj.name.trim()) {
-            lastName = obj.name.trim()
+          if (obj?.type === 'session_info' && typeof obj?.name === 'string') {
+            const trimmed = obj.name.trim()
+            lastName = trimmed || null
+            lastWasClear = !trimmed
           }
         } catch {
           // ignore
@@ -191,13 +195,18 @@ function scanSessionInfoNameFromFile(path: string): string | null {
     if (tailLine) {
       try {
         const obj = JSON.parse(tailLine) as any
-        if (obj?.type === 'session_info' && typeof obj?.name === 'string' && obj.name.trim()) {
-          lastName = obj.name.trim()
+        if (obj?.type === 'session_info' && typeof obj?.name === 'string') {
+          const trimmed = obj.name.trim()
+          lastName = trimmed || null
+          lastWasClear = !trimmed
         }
       } catch {
         // ignore
       }
     }
+
+    // If the latest session_info was an explicit clear, honor it.
+    if (lastWasClear) return null
 
     return lastName
   } catch {

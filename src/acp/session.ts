@@ -370,7 +370,19 @@ export class PiAcpSession {
 
     // Settle any live turn when the subprocess exits unexpectedly.
     this.proc.onExit(() => {
-      if (this.disposed) return
+      if (this.disposed) {
+        // Session was closed (e.g. loadSession reload). Settle the turn silently
+        // so promises don't hang, but don't emit stale updates to the new session.
+        if (this.pendingTurn) {
+          this.pendingTurn.resolve('error')
+          this.pendingTurn = null
+        }
+        const queued = this.turnQueue.splice(0, this.turnQueue.length)
+        for (const t of queued) t.resolve('error')
+        this.inAgentLoop = false
+        return
+      }
+
       void (async () => {
         // Finalize any active tool calls so the client doesn't see them stuck.
         for (const [toolCallId] of this.currentToolCalls) {
