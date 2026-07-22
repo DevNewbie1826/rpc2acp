@@ -22,7 +22,7 @@ function loadFile(path: string): SessionMapFile {
   try {
     const raw = readFileSync(path, 'utf-8')
     const parsed = JSON.parse(raw) as SessionMapFile
-    if (parsed?.version !== 1 || typeof parsed.sessions !== 'object' || !parsed.sessions) {
+    if (parsed?.version !== 1 || typeof parsed.sessions !== 'object' || !parsed.sessions || Array.isArray(parsed.sessions)) {
       return { version: 1, sessions: {} }
     }
     return parsed

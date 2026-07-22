@@ -73,11 +73,28 @@ export function bashExitCode(result: unknown, isError: boolean): number {
   const record = result as BashResultRecord | null | undefined
   const details = record?.details as BashResultRecord | null | undefined
   const exitCode = details?.exitCode ?? record?.exitCode ?? details?.code ?? record?.code
-  return typeof exitCode === 'number' ? exitCode : isError ? 1 : 0
+  if (typeof exitCode === 'number') return exitCode
+
+  // Pi wraps nonzero exits as text content: "Command exited with code N".
+  // Parse only from the trailing line to avoid false matches in command output.
+  if (isError) {
+    const text = bashResultText(result)
+    const lastLine = text.trimEnd().split('\n').pop() ?? ''
+    const match = /exited with code (\d+)$/.exec(lastLine)
+    if (match) return Number(match[1])
+  }
+
+  return isError ? 1 : 0
 }
 
 export function bashOutputDelta(previous: string, next: string): string {
-  return next.startsWith(previous) ? next.slice(previous.length) : next
+  // If next extends previous, return only the new part.
+  if (next.startsWith(previous)) return next.slice(previous.length)
+
+  // Otherwise emit the full snapshot. Pi tail-truncates output, so a shorter
+  // next is not a prefix of previous; with repeated content (e.g. 2000 identical
+  // lines) next may coincidentally prefix-match previous but is still new output.
+  return next
 }
 
 export function bashTerminalContent(toolCallId: string): ToolCallContent[] {

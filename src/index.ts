@@ -24,23 +24,9 @@ if (process.argv.includes('--terminal-login')) {
   process.exit(typeof res.status === 'number' ? res.status : 1)
 }
 
-const input = new WritableStream<Uint8Array>({
-  write(chunk) {
-    return new Promise<void>(resolve => {
-      if ((process.stdout as any).destroyed || !process.stdout.writable) return resolve()
+import { createStdoutWriter } from './stdout-writer.js'
 
-      try {
-        process.stdout.write(chunk, err => {
-          void err
-          resolve()
-        })
-      } catch {
-        // Common: ERR_STREAM_DESTROYED ("Cannot call write after a stream was destroyed").
-        resolve()
-      }
-    })
-  }
-})
+const input = createStdoutWriter()
 
 const output = new ReadableStream<Uint8Array>({
   start(controller) {

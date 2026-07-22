@@ -80,7 +80,9 @@ export class PiRpcProcess {
   private readonly child: ChildProcessWithoutNullStreams
   private readonly pending = new Map<string, { resolve: (v: PiRpcResponse) => void; reject: (e: unknown) => void }>()
   private eventHandlers: Array<(ev: PiRpcEvent) => void> = []
+  private exitHandlers: Array<(code: number | null, signal: string | null) => void> = []
   private readonly preludeLines: string[] = []
+  private exited = false
 
   private constructor(child: ChildProcessWithoutNullStreams) {
     this.child = child
@@ -115,9 +117,16 @@ export class PiRpcProcess {
     })
 
     child.on('exit', (code, signal) => {
+      this.exited = true
       const err = new Error(`pi process exited (code=${code}, signal=${signal})`)
       for (const [, p] of this.pending) p.reject(err)
       this.pending.clear()
+    })
+
+    // Fire exit handlers only after stdout is fully drained ('close' event).
+    // This ensures all buffered NDJSON lines are processed before settling turns.
+    child.on('close', (code, signal) => {
+      for (const h of this.exitHandlers) h(code, signal)
     })
 
     child.on('error', err => {
@@ -216,8 +225,16 @@ export class PiRpcProcess {
     }
   }
 
+  /** Register a callback for process exit. */
+  onExit(handler: (code: number | null, signal: string | null) => void): () => void {
+    this.exitHandlers.push(handler)
+    return () => {
+      this.exitHandlers = this.exitHandlers.filter(h => h !== handler)
+    }
+  }
+
   dispose(signal: NodeJS.Signals | number = 'SIGTERM'): void {
-    if (this.child.killed) return
+    if (this.exited) return
 
     // On Windows with shell:true, child is the cmd.exe wrapper PID.
     // child.kill() terminates only the shell; the actual pi Node process survives.

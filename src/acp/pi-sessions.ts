@@ -1,8 +1,15 @@
 import { readdirSync, readFileSync, statSync, openSync, readSync, closeSync, existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join, resolve, isAbsolute } from 'node:path'
 import { resolveVariant, getAgentDir as getVariantAgentDir } from './agent-variant.js'
 
 const variant = resolveVariant()
+
+function expandTilde(p: string): string {
+  if (p === '~') return homedir()
+  if (p.startsWith('~/') || p.startsWith('~\\')) return join(homedir(), p.slice(2))
+  return p
+}
 
 export type PiSessionListItem = {
   sessionId: string
@@ -37,6 +44,16 @@ function readSessionDirFromSettings(agentDir: string): string | null {
 }
 
 export function getPiSessionsDir(): string {
+  // Pi supports <NAME>_CODING_AGENT_SESSION_DIR as an env override.
+  const envKey = `${variant.name.toUpperCase()}_CODING_AGENT_SESSION_DIR`
+  const envDir = process.env[envKey]
+  if (envDir && envDir.trim()) {
+    const expanded = expandTilde(envDir.trim())
+    // Relative paths resolve against the agent dir (matches Pi's own semantics),
+    // not the adapter process's CWD.
+    return isAbsolute(expanded) ? expanded : resolve(getPiAgentDir(), expanded)
+  }
+
   const agentDir = getPiAgentDir()
   return readSessionDirFromSettings(agentDir) ?? join(agentDir, 'sessions')
 }
@@ -111,7 +128,7 @@ function parseSessionHeader(firstLine: string): { sessionId: string; cwd: string
   }
 }
 
-function pickTitleFromTail(tail: string): string | null {
+function pickTitleFromTail(tail: string): { name: string | null; found: boolean } {
   // Try to find the *latest* session_info entry (stores the user-provided name).
   // We scan backwards line-by-line.
   const lines = tail.split(/\r?\n/)
@@ -120,14 +137,16 @@ function pickTitleFromTail(tail: string): string | null {
     if (!line) continue
     try {
       const obj = JSON.parse(line) as any
-      if (obj?.type === 'session_info' && typeof obj?.name === 'string' && obj.name.trim()) {
-        return obj.name.trim()
+      if (obj?.type === 'session_info' && typeof obj?.name === 'string') {
+        // Empty name is an explicit clear; found=true prevents fallback to older names.
+        const trimmed = obj.name.trim()
+        return { name: trimmed || null, found: true }
       }
     } catch {
       // ignore
     }
   }
-  return null
+  return { name: null, found: false }
 }
 
 function scanSessionInfoNameFromFile(path: string): string | null {
@@ -233,6 +252,7 @@ function pickFallbackTitleFromHead(path: string): string | null {
   try {
     const raw = readFileSync(path, { encoding: 'utf8' })
     const lines = raw.split(/\r?\n/)
+    let scannedLines = 0
     for (const line0 of lines) {
       const line = line0.trim()
       if (!line) continue
@@ -251,9 +271,9 @@ function pickFallbackTitleFromHead(path: string): string | null {
       }
 
       // Avoid scanning extremely large files fully.
-      // If we didn't find a user message in the first ~2000 lines, give up.
-      // (Most sessions have it early.)
-      if (lines.length > 2000) break
+      // Count scanned lines, not total file lines.
+      scannedLines++
+      if (scannedLines > 2000) break
     }
   } catch {
     // ignore
@@ -278,16 +298,20 @@ export function listPiSessions(): PiSessionListItem[] {
     let updatedAt: string | null = null
 
     let title: string | null = null
+    let titleFound = false
     try {
       const tail = readTail(file)
-      title = pickTitleFromTail(tail)
+      const tailResult = pickTitleFromTail(tail)
+      title = tailResult.name
+      titleFound = tailResult.found
       updatedAt = pickUpdatedAtFromTail(tail)
     } catch {
       // ignore
     }
 
     // If the session was named early and grew large, it may fall outside of the tail window.
-    if (!title) {
+    // Skip fallback when the tail had an explicit clear (found=true, name=null).
+    if (!title && !titleFound) {
       title = scanSessionInfoNameFromFile(file)
     }
 

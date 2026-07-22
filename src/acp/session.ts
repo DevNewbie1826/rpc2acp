@@ -14,6 +14,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { PiRpcProcess, PiRpcSpawnError, type PiRpcEvent } from '../pi-rpc/process.js'
 import { maybeAuthRequiredError } from './auth-required.js'
 import { SessionStore } from './session-store.js'
+import { resolveVariant } from './agent-variant.js'
 import { expandSlashCommand, type FileSlashCommand } from './slash-commands.js'
 import {
   bashCommand,
@@ -27,6 +28,8 @@ import {
   isBashTool
 } from './translate/bash.js'
 import { toolResultToText } from './translate/pi-tools.js'
+
+const variant = resolveVariant()
 
 type SessionCreateParams = {
   cwd: string
@@ -183,9 +186,11 @@ export class SessionManager {
   private sweepIdleSessions(): void {
     const now = Date.now()
     for (const [id, last] of this.lastActivity) {
-      if (now - last > this.idleTtlMs) {
-        this.close(id)
-      }
+      if (now - last <= this.idleTtlMs) continue
+      const session = this.sessions.get(id)
+      // Don't evict sessions with in-flight or queued work.
+      if (session?.hasActiveTurn) continue
+      this.close(id)
     }
   }
 
@@ -329,6 +334,7 @@ export class PiAcpSession {
   // The overall agent loop completes when `agent_end` is emitted.
   private inAgentLoop = false
 
+
   // For ACP diff support: capture file contents before edit/write mutations,
   // then emit ToolCallContent {type:"diff"}. Compatible structured edit/write
   // events may need to be implemented in pi in the future.
@@ -357,6 +363,19 @@ export class PiAcpSession {
     this.fileCommands = opts.fileCommands ?? []
 
     this.proc.onEvent(ev => this.handlePiEvent(ev))
+
+    // Settle any live turn when the subprocess exits unexpectedly.
+    this.proc.onExit(() => {
+      void this.flushEmits().finally(() => {
+        if (this.pendingTurn) {
+          this.pendingTurn.resolve('error')
+          this.pendingTurn = null
+        }
+        const queued = this.turnQueue.splice(0, this.turnQueue.length)
+        for (const t of queued) t.resolve('error')
+        this.inAgentLoop = false
+      })
+    })
   }
 
   setStartupInfo(text: string) {
@@ -443,6 +462,11 @@ export class PiAcpSession {
     return this.cancelRequested
   }
 
+  /** True while a turn is in flight or queued (prevents idle eviction). */
+  get hasActiveTurn(): boolean {
+    return this.pendingTurn !== null || this.turnQueue.length > 0
+  }
+
   private emit(update: SessionUpdate): void {
     // Serialize update delivery.
     this.lastEmit = this.lastEmit
@@ -516,6 +540,31 @@ export class PiAcpSession {
     this.bashOutputSnapshots.delete(toolCallId)
   }
 
+  private clearStaleToolState(): void {
+    this.currentToolCalls.clear()
+    this.fileMutationToolCallIds.clear()
+    this.bashToolCallIds.clear()
+    this.bashOutputSnapshots.clear()
+  }
+
+  /** Start the next queued prompt if no turn is in flight. */
+  private startNextQueued(): void {
+    if (this.pendingTurn) return
+    const next = this.turnQueue.shift()
+    if (next) {
+      this.emit({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: `Starting queued message. (${this.turnQueue.length} remaining)` }
+      })
+      this.startTurn(next)
+    } else {
+      this.emit({
+        sessionUpdate: 'session_info_update',
+        _meta: { piAcp: { queueDepth: 0, running: false } }
+      })
+    }
+  }
+
   private startTurn(t: QueuedTurn): void {
     this.cancelRequested = false
     this.inAgentLoop = false
@@ -546,6 +595,12 @@ export class PiAcpSession {
 
         this.pendingTurn = null
         this.inAgentLoop = false
+
+        this.clearStaleToolState()
+
+        // Drain the queue so hasActiveTurn doesn't block idle eviction.
+        const queued = this.turnQueue.splice(0, this.turnQueue.length)
+        for (const t of queued) t.resolve('error')
 
         // If the prompt failed, do not automatically proceed—pi may be unhealthy.
         // But we still clear the queueDepth metadata.
@@ -875,28 +930,34 @@ export class PiAcpSession {
       }
 
       case 'agent_end': {
-        // Ensure all updates derived from pi events are delivered before we resolve
-        // the ACP `session/prompt` request.
+        if (variant.settleEvent === 'agent_settled') {
+          // pi emits agent_end after each low-level run. Retries, auto-compaction,
+          // and queued continuations may still follow. Don't resolve here;
+          // wait for agent_settled as the true completion boundary.
+          break
+        }
+
+        // OMP path: agent_end is the final completion signal.
         void this.flushEmits().finally(() => {
           const reason: StopReason = this.cancelRequested ? 'cancelled' : 'end_turn'
           this.pendingTurn?.resolve(reason)
           this.pendingTurn = null
           this.inAgentLoop = false
+          this.clearStaleToolState()
+          this.startNextQueued()
+        })
+        break
+      }
 
-          // Start next queued prompt, if any.
-          const next = this.turnQueue.shift()
-          if (next) {
-            this.emit({
-              sessionUpdate: 'agent_message_chunk',
-              content: { type: 'text', text: `Starting queued message. (${this.turnQueue.length} remaining)` }
-            })
-            this.startTurn(next)
-          } else {
-            this.emit({
-              sessionUpdate: 'session_info_update',
-              _meta: { piAcp: { queueDepth: 0, running: false } }
-            })
-          }
+      case 'agent_settled': {
+        // pi path: all post-run work (retries, compaction, continuations) is done.
+        void this.flushEmits().finally(() => {
+          const reason: StopReason = this.cancelRequested ? 'cancelled' : 'end_turn'
+          this.pendingTurn?.resolve(reason)
+          this.pendingTurn = null
+          this.inAgentLoop = false
+          this.clearStaleToolState()
+          this.startNextQueued()
         })
         break
       }

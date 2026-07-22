@@ -82,6 +82,9 @@ test('PiAcpAgent: listSessions lists pi sessions and loadSession replays history
         onEvent: () => () => {
           // noop unsubscribe
         },
+        onExit: () => () => {
+          // noop unsubscribe
+        },
         getMessages: async () => ({
           messages: [
             { role: 'user', content: 'Hello' },

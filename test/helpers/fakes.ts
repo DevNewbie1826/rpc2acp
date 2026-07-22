@@ -24,6 +24,7 @@ export class FakeAgentSideConnection {
 
 export class FakePiRpcProcess {
   private handlers: Array<(ev: PiRpcEvent) => void> = []
+  private exitHandlers: Array<(code: number | null, signal: string | null) => void> = []
 
   // spies
   readonly prompts: Array<{ message: string; attachments: unknown[] }> = []
@@ -35,6 +36,18 @@ export class FakePiRpcProcess {
     return () => {
       this.handlers = this.handlers.filter(h => h !== handler)
     }
+  }
+
+  onExit(handler: (code: number | null, signal: string | null) => void): () => void {
+    this.exitHandlers.push(handler)
+    return () => {
+      this.exitHandlers = this.exitHandlers.filter(h => h !== handler)
+    }
+  }
+
+  /** Simulate process exit (for tests). */
+  simulateExit(code: number | null = 0, signal: string | null = null) {
+    for (const h of this.exitHandlers) h(code, signal)
   }
 
   emit(ev: PiRpcEvent) {

@@ -106,7 +106,7 @@ function builtinAvailableCommands(): AvailableCommand[] {
   ]
 }
 
-function mergeCommands(a: AvailableCommand[], b: AvailableCommand[]): AvailableCommand[] {
+export function mergeCommands(a: AvailableCommand[], b: AvailableCommand[]): AvailableCommand[] {
   // Preserve order, de-dupe by name (first wins).
   const out: AvailableCommand[] = []
   const seen = new Set<string>()

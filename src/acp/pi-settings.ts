@@ -28,12 +28,32 @@ function readJsonFile(path: string): Record<string, unknown> {
   }
 }
 
+function normalizeLegacyKeys(settings: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...settings }
+
+  // quietStart → quietStartup
+  if (!('quietStartup' in out) && typeof out.quietStart === 'boolean') {
+    out.quietStartup = out.quietStart
+  }
+  delete out.quietStart
+
+  // skills.enableSkillCommands → enableSkillCommands
+  if (!('enableSkillCommands' in out) && isObject(out.skills)) {
+    const nested = out.skills.enableSkillCommands
+    if (typeof nested === 'boolean') {
+      out.enableSkillCommands = nested
+    }
+  }
+
+  return out
+}
+
 function getMergedSettings(cwd: string): Record<string, unknown> {
   const globalSettingsPath = getGlobalSettingsPath(variant)
   const projectSettingsPath = getProjectSettingsPath(variant, cwd)
 
-  const global = readJsonFile(globalSettingsPath)
-  const project = readJsonFile(projectSettingsPath)
+  const global = normalizeLegacyKeys(readJsonFile(globalSettingsPath))
+  const project = normalizeLegacyKeys(readJsonFile(projectSettingsPath))
   return deepMerge(global, project)
 }
 
@@ -47,15 +67,8 @@ export function getAgentDir(): string {
  */
 export function getEnableSkillCommands(cwd: string): boolean {
   const merged = getMergedSettings(cwd)
-
   const direct = merged.enableSkillCommands
-  if (typeof direct === 'boolean') return direct
-
-  // Back-compat: some versions used skills.enableSkillCommands
-  const nested = isObject(merged.skills) ? merged.skills.enableSkillCommands : undefined
-  if (typeof nested === 'boolean') return nested
-
-  return true
+  return typeof direct === 'boolean' ? direct : true
 }
 
 /**
@@ -64,13 +77,6 @@ export function getEnableSkillCommands(cwd: string): boolean {
  */
 export function getQuietStartup(cwd: string): boolean {
   const merged = getMergedSettings(cwd)
-
   const direct = merged.quietStartup
-  if (typeof direct === 'boolean') return direct
-
-  // Back-compat: some versions used quietStart
-  const legacy = (merged as any).quietStart
-  if (typeof legacy === 'boolean') return legacy
-
-  return false
+  return typeof direct === 'boolean' ? direct : false
 }

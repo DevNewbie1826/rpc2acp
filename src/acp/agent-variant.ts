@@ -14,6 +14,12 @@ export type AgentVariant = {
   command: string
   /** npm package name for version checks */
   npmPackage: string
+  /**
+   * Event that signals the agent is fully idle after a prompt.
+   * pi/senpi emit agent_end (per-run) then agent_settled (all post-run work done).
+   * OMP emits only agent_end (deferred until truly done).
+   */
+  settleEvent: 'agent_end' | 'agent_settled'
 }
 
 const PRESETS: Readonly<Record<string, AgentVariant>> = {
@@ -21,19 +27,22 @@ const PRESETS: Readonly<Record<string, AgentVariant>> = {
     name: 'pi',
     configDir: '.pi',
     command: 'pi',
-    npmPackage: '@earendil-works/pi-coding-agent'
+    npmPackage: '@earendil-works/pi-coding-agent',
+    settleEvent: 'agent_settled'
   },
   omp: {
     name: 'omp',
     configDir: '.omp',
     command: 'omp',
-    npmPackage: '@oh-my-pi/pi-coding-agent'
+    npmPackage: '@oh-my-pi/pi-coding-agent',
+    settleEvent: 'agent_end'
   },
   senpi: {
     name: 'senpi',
     configDir: '.senpi',
     command: 'senpi',
-    npmPackage: '@code-yeongyu/senpi'
+    npmPackage: '@code-yeongyu/senpi',
+    settleEvent: 'agent_settled'
   }
 }
 
@@ -78,7 +87,7 @@ export function resolveVariant(): AgentVariant {
   const presetName = cliFlagOrUndefined('variant')?.toLowerCase()
     ?? envOrUndefined('PI_ACP_VARIANT')?.toLowerCase()
     ?? 'pi'
-  const preset = PRESETS[presetName] ?? PRESETS.pi
+  const preset = Object.hasOwn(PRESETS, presetName) ? PRESETS[presetName] : PRESETS.pi
 
   return {
     name: preset.name,
@@ -91,7 +100,8 @@ export function resolveVariant(): AgentVariant {
       ?? preset.command,
     npmPackage: cliFlagOrUndefined('agent-npm-package')
       ?? envOrUndefined('PI_ACP_AGENT_NPM_PACKAGE')
-      ?? preset.npmPackage
+      ?? preset.npmPackage,
+    settleEvent: preset.settleEvent
   }
 }
 
