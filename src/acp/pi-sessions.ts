@@ -1,11 +1,14 @@
 import { readdirSync, readFileSync, statSync, openSync, readSync, closeSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve, isAbsolute } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { resolveVariant, getAgentDir as getVariantAgentDir } from './agent-variant.js'
 
 const variant = resolveVariant()
 
 function expandTilde(p: string): string {
+  // Pi's path normalizer also accepts file:/// URLs.
+  if (p.startsWith('file://')) return fileURLToPath(p)
   if (p === '~') return homedir()
   if (p.startsWith('~/')) return join(homedir(), p.slice(2))
   // Backslash tilde is only a home shortcut on Windows.
